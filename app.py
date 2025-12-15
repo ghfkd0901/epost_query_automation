@@ -10,7 +10,7 @@ import zipfile
 import shutil
 from io import BytesIO
 
-# 멀티프로세싱 관련 모듈은 제거된 V16 기반 유지
+# Selenium 및 드라이버 관리 모듈
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -45,14 +45,18 @@ def clear_log():
 def get_chrome_driver_path():
     """크롬 드라이버 경로를 한 번만 설치/가져옵니다."""
     try:
+        # Streamlit Cloud 환경에서는 webdriver-manager가 제대로 작동하지 않을 수 있으므로, 
+        # 로컬 환경에서만 사용하고 클라우드에서는 Secrets의 BIN 경로를 사용합니다.
+        # 이 함수는 로컬 환경 테스트 시에만 유효합니다.
         path = ChromeDriverManager().install()
         return path
     except Exception as e:
-        st.error(f"Chrome Driver 설치 실패: {e}")
-        return None
+        # 클라우드 환경에서는 설치 실패 시 'chromedriver' 기본값을 반환하여 
+        # Secrets에 설정된 경로로 연결되도록 유도합니다.
+        return 'chromedriver' 
 
 # =========================
-# 2. Selenium 작업 함수 (화면 보이기 활성화)
+# 2. Selenium 작업 함수 (클라우드 안정화 옵션 추가)
 # =========================
 def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
     """
@@ -81,22 +85,33 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
                 log_and_update("엑셀에 '등기번호' 컬럼이 없습니다.")
                 return
 
-            # 크롬 옵션 설정 (화면 보이기 유지)
+            # 크롬 옵션 설정
             options = Options()
             options.add_experimental_option("prefs", {
                 "printing.print_preview_sticky_settings.appState": '{"recentDestinations": [{"id": "Save as PDF", "origin": "local"}], "selectedDestinationId": "Save as PDF", "version": 2}',
                 "savefile.default_directory": temp_save_dir
             })
             options.add_argument("--kiosk-printing")
-            # options.add_argument("--headless") # 화면 보이기 유지
+            
+            # --- [V22 핵심 수정] 클라우드 충돌 방지 필수 인자 추가 ---
+            # 1. 클라우드 환경에서 필수적인 옵션들
             options.add_argument("--no-sandbox") 
             options.add_argument("--disable-dev-shm-usage") 
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1920,1080")
+            options.add_argument("--remote-debugging-pipe") 
+            
+            # 2. 헤드리스 옵션 추가 (클라우드에서는 필수, 로컬에서는 주석 처리 권장)
+            # 클라우드 배포 시 UI가 보이지 않으므로, 충돌 방지를 위해 헤드리스를 명시적으로 켜줍니다.
+            options.add_argument("--headless") 
 
             # 드라이버 실행
             driver_path = get_chrome_driver_path()
-            if not driver_path:
-                return
-
+            
+            # Streamlit Cloud 환경에서 Secrets 설정이 되어 있을 경우 BIN 경로를 사용합니다.
+            if 'chrome' in st.secrets and 'BIN' in st.secrets['chrome']:
+                 options.binary_location = st.secrets['chrome']['BIN']
+                 
             service = Service(driver_path)
             driver = webdriver.Chrome(service=service, options=options)
             driver.maximize_window()
@@ -149,8 +164,13 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
                 except Exception as e:
                     # 에러 발생 시 스크린샷 저장
                     err_shot = os.path.join(temp_save_dir, f"error_{tracking_number}.png")
-                    driver.save_screenshot(err_shot)
-                    log_and_update(f"→ 오류 발생! 스크린샷 저장됨: {err_shot}")
+                    # 클라우드에서는 스크린샷 저장이 자원 문제로 실패할 수 있으나 시도
+                    try:
+                        driver.save_screenshot(err_shot)
+                        log_and_update(f"→ 오류 발생! 스크린샷 저장됨: {err_shot}")
+                    except:
+                        log_and_update(f"→ 오류 발생! 스크린샷 저장 실패.")
+                        
                     log_and_update(f"→ 에러 내용: {e}")
                     continue
 
@@ -188,8 +208,8 @@ def main():
     st.set_page_config(page_title="우체국 등기 조회 웹앱", layout="centered")
     st.title("📮 우체국 등기 조회 자동화 (Streamlit)")
     
-    # UI 잠김 경고
-    st.warning("⚠️ **주의: 브라우저 화면이 보입니다.** '작업 시작' 버튼을 누르면 Selenium 작업이 완료될 때까지 **화면이 잠깁니다.** 작업 중에는 브라우저를 닫지 마세요.")
+    st.info("💡 **배포 환경:** 클라우드에서는 브라우저 화면이 보이지 않습니다. 작업이 완료될 때까지 잠시 기다려 주세요.")
+    st.warning("⚠️ **주의:** '작업 시작' 버튼을 누르면 Selenium 작업이 완료될 때까지 **화면이 잠깁니다.** 작업 중에는 브라우저를 닫지 마세요.")
     st.markdown("---")
 
     is_running = st.session_state.is_running
@@ -202,7 +222,7 @@ def main():
     )
     st.markdown("---")
     
-    # 2. 버튼 (중지 버튼 없음)
+    # 2. 버튼
     col1, col2 = st.columns([1, 1])
     with col1:
         start_button = st.button("🚀 작업 시작", 
@@ -219,11 +239,11 @@ def main():
     # '시작' 버튼 클릭 이벤트 처리
     if start_button and uploaded_file:
         # Streamlit Spinner를 사용하여 작업 중임을 사용자에게 알림
-        with st.spinner('Selenium 작업 진행 중... (화면을 주시해 주세요)'):
+        with st.spinner('Selenium 작업 진행 중... (클라우드 환경에서는 5분 이상 소요될 수 있습니다)'):
             run_selenium_process(uploaded_file.read(), log_placeholder) 
         
         # 작업이 끝나면 (Spinner 종료) 다운로드 섹션을 보여주기 위해 RERUN
-        st.rerun() # <--- [핵심 수정] 명령어 변경
+        st.rerun() 
 
     # 4. 결과 출력 및 다운로드 버튼 표시
     download_data = st.session_state.zip_download_data
