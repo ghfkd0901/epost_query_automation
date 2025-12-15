@@ -15,17 +15,16 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.service import Service 
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.remote.remote_connection import RemoteConnection # [V27] 타임아웃 설정을 위해 추가
 from webdriver_manager.chrome import ChromeDriverManager
 
 
 # =========================
 # 1. 상태 관리 및 유틸리티
 # =========================
-# ... (상태 관리 함수는 V23과 동일)
-
 if 'log_messages' not in st.session_state:
     st.session_state.log_messages = []
 if 'zip_download_data' not in st.session_state:
@@ -45,7 +44,7 @@ def clear_log():
 
 @st.cache_resource(ttl=3600)
 def get_chrome_driver_path():
-    """크롬 드라이버 경로를 한 번만 설치/가져옵니다. (V24에서는 사용되지 않음)"""
+    """크롬 드라이버 경로를 한 번만 설치/가져옵니다."""
     try:
         path = ChromeDriverManager().install()
         return path
@@ -53,7 +52,7 @@ def get_chrome_driver_path():
         return 'chromedriver' 
 
 # =========================
-# 2. Selenium 작업 함수 (Service 객체 제거)
+# 2. Selenium 작업 함수 (타임아웃 설정 적용)
 # =========================
 def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
     """
@@ -63,6 +62,10 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
     clear_log()
     driver = None
     successful_files = []
+    
+    # [V27] 드라이버 타임아웃 설정 (5분)
+    # 느린 클라우드 환경에서 드라이버와 브라우저 간의 통신 타임아웃을 늘립니다.
+    RemoteConnection.set_timeout(300) 
     
     with tempfile.TemporaryDirectory() as temp_save_dir:
         
@@ -89,9 +92,9 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
                 "savefile.default_directory": temp_save_dir
             })
             options.add_argument("--kiosk-printing")
-            options.add_argument("--headless") # 클라우드 배포 시 필수
+            options.add_argument("--headless") 
             
-            # --- 클라우드 충돌 방지 및 DevToolsActivePort 에러 회피 최종 옵션 ---
+            # --- 클라우드 안정화 및 DevToolsActivePort 에러 회피 최종 옵션 ---
             options.add_argument("--no-sandbox") 
             options.add_argument("--disable-dev-shm-usage") 
             options.add_argument("--disable-gpu")
@@ -105,36 +108,52 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
             options.add_argument("--disable-logging")
 
             # 드라이버 실행
-            
-            # [V24 핵심 수정 1] Service 객체 사용 없이 options에 binary_location 설정
-            if 'chrome' in st.secrets and 'BIN' in st.secrets['chrome']:
-                 options.binary_location = st.secrets['chrome']['BIN']
-                 log_and_update(f"Chromium BIN 경로 사용: {st.secrets['chrome']['BIN']}")
-            else:
-                 log_and_update("Chromium BIN 경로 설정 없음. 기본 경로를 사용합니다.")
-                 
-            # [V24 핵심 수정 2] Chrome() 호출 시 options만 전달
-            driver = webdriver.Chrome(options=options) 
+            try:
+                # 로컬과 클라우드 환경 분리 (V25 로직 기반)
+                if 'chrome' in st.secrets and 'BIN' in st.secrets['chrome']:
+                    # 1. 클라우드 환경: secrets에 설정된 경로 사용
+                    options.binary_location = st.secrets['chrome']['BIN']
+                    log_and_update(f"Chromium BIN 경로 사용: {st.secrets['chrome']['BIN']}")
+                    driver = webdriver.Chrome(options=options)
+                else:
+                    # 2. 로컬 환경: webdriver-manager 사용
+                    driver_path = get_chrome_driver_path()
+                    service = Service(driver_path) 
+                    driver = webdriver.Chrome(service=service, options=options)
+                    log_and_update("로컬 환경: webdriver-manager 드라이버 경로 사용")
+
+            except Exception as e:
+                # secrets 에러가 발생해도 로컬 테스트를 계속 진행할 수 있도록 처리
+                if "StreamlitSecretNotFoundError" in str(e):
+                    driver_path = get_chrome_driver_path()
+                    service = Service(driver_path)
+                    driver = webdriver.Chrome(service=service, options=options)
+                    log_and_update("로컬 환경 (Secrets 에러 무시): webdriver-manager 드라이버 경로 사용")
+                else:
+                    raise e
+                    
             log_and_update("Chrome 드라이버 세션 시작 시도 완료.")
-            
             driver.maximize_window()
             wait = WebDriverWait(driver, 20) 
             total = len(df)
             
             for i, row in df.iterrows():
-                # ... (Selenium 핵심 루프는 V23과 동일)
                 tracking_number = str(row["등기번호"]).strip()
                 if not tracking_number: continue
 
                 log_and_update(f"[{i+1}/{total}] 조회 시도: {tracking_number}")
 
                 before_files = set(glob.glob(os.path.join(temp_save_dir, "*.pdf")))
+                
+                # V26: time.sleep(1.5) 제거
                 driver.get("https://service.epost.go.kr/trace.RetrieveDomRigiTraceList.comm")
-                time.sleep(1.5)
+                # driver.get() 성공을 위해 명시적 대기가 필요할 수 있음
+                wait.until(EC.presence_of_element_located((By.ID, "sid1")))
+
 
                 try:
                     # Selenium 핵심 로직
-                    input_box = wait.until(EC.presence_of_element_located((By.ID, "sid1")))
+                    input_box = driver.find_element(By.ID, "sid1") # 이미 존재 확인했으므로 바로 사용
                     input_box.clear()
                     input_box.send_keys(tracking_number)
                     
@@ -146,17 +165,28 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
 
                     print_btn = wait.until(EC.element_to_be_clickable((By.ID, "btnPrint")))
                     print_btn.click()
-                    time.sleep(7) 
-
-                    # 파일 저장 및 이름 변경
+                    
+                    # ----------------------------------------------------
+                    # [V26 로직] time.sleep(7) 대신 파일 생성 감지 로직 도입
+                    # ----------------------------------------------------
                     after_files = set(glob.glob(os.path.join(temp_save_dir, "*.pdf")))
-                    new_files = list(after_files - before_files)
-
+                    start_time = time.time()
+                    
+                    # 최대 10초까지 파일이 새로 생성되기를 명시적으로 기다립니다.
+                    while time.time() - start_time < 10: 
+                        current_files = set(glob.glob(os.path.join(temp_save_dir, "*.pdf")))
+                        new_files = list(current_files - after_files)
+                        if new_files:
+                            break
+                        time.sleep(0.5) 
+                    
+                    # 파일 저장 및 이름 변경 (기존 로직)
                     if new_files:
                         latest_file = max(new_files, key=os.path.getctime)
                         new_name = os.path.join(temp_save_dir, f"{tracking_number}.pdf")
                         
                         try:
+                            time.sleep(0.5) 
                             shutil.move(latest_file, new_name) 
                             log_and_update(f"→ 저장 완료: {tracking_number}.pdf")
                             successful_files.append(new_name)
@@ -166,11 +196,11 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
                         log_and_update(f"→ PDF 생성 안됨 (Timecheck)")
 
                 except Exception as e:
-                    # 에러 발생 시 스크린샷 저장 (클라우드 환경에서는 실패 가능성 있음)
                     log_and_update(f"→ 오류 발생! 상세 에러: {e}")
                     continue
 
             # 작업 완료 후 ZIP 파일 생성
+            # ... (ZIP 파일 생성 로직은 V23과 동일)
             zip_buffer = BytesIO()
             zip_file_name = f"epost_tracking_results_{time.strftime('%Y%m%d_%H%M%S')}.zip"
             with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
