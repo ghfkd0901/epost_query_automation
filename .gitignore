@@ -1,0 +1,60 @@
+# ------------------------------------
+# 1. Python Virtual Environment and Data
+# ------------------------------------
+.venv/
+venv/
+env/
+
+# Bytecode files
+__pycache__/
+*.pyc
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# ------------------------------------
+# 2. IDE/Editor Files
+# ------------------------------------
+.vscode/
+.idea/
+*.sublime-workspace
+
+# ------------------------------------
+# 3. Streamlit & Selenium Specific Files
+# ------------------------------------
+# Streamlit local cache and config
+.streamlit/
+
+# Temporary directories (e.g., used by tempfile or os.mkdtemp)
+/tmp*/
+
+# WebDriver Manager downloads (로컬에만 존재)
+.wdm/
+chromedriver*
+geckodriver*
+msedgedriver*
+
+# ------------------------------------
+# 4. Logs and Outputs (앱 실행 결과)
+# ------------------------------------
+*.log
+*.zip
+*.pdf
+*.png  # 오류 스크린샷 제외
+
+# ------------------------------------
+# 5. [추가] PyInstaller 및 레거시 GUI 파일 제외
+# ------------------------------------
+# 빌드 관련 폴더 제외
+/build/
+/dist/
+
+# 테스트 데이터 폴더 제외
+/test_data/
+
+# 레거시 GUI 및 스펙 파일 제외 (PyQt 등)
+*.spec
+*.gui.py
+epost_gui.py
+epost_gui.spec

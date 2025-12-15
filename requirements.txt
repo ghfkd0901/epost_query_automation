@@ -1,0 +1,6 @@
+streamlit
+pandas
+openpyxl  # pandas가 .xlsx 파일을 읽기 위해 필요
+selenium
+webdriver-manager
+# shutil, zipfile 등은 파이썬 기본 모듈이므로 제외
