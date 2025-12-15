@@ -1,3 +1,4 @@
 # packages.txt
-chromium-browser
-chromium-codecs-ffmpeg
+# chromium-browser 대신 chromium으로 변경합니다.
+chromium
+ffmpeg
