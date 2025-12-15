@@ -18,7 +18,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service 
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.remote.remote_connection import RemoteConnection # [V27] 타임아웃 설정을 위해 추가
+from selenium.webdriver.remote.remote_connection import RemoteConnection 
 from webdriver_manager.chrome import ChromeDriverManager
 
 
@@ -52,7 +52,7 @@ def get_chrome_driver_path():
         return 'chromedriver' 
 
 # =========================
-# 2. Selenium 작업 함수 (타임아웃 설정 적용)
+# 2. Selenium 작업 함수 (V28: PDF 대기 시간 30초)
 # =========================
 def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
     """
@@ -64,7 +64,6 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
     successful_files = []
     
     # [V27] 드라이버 타임아웃 설정 (5분)
-    # 느린 클라우드 환경에서 드라이버와 브라우저 간의 통신 타임아웃을 늘립니다.
     RemoteConnection.set_timeout(300) 
     
     with tempfile.TemporaryDirectory() as temp_save_dir:
@@ -153,7 +152,7 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
 
                 try:
                     # Selenium 핵심 로직
-                    input_box = driver.find_element(By.ID, "sid1") # 이미 존재 확인했으므로 바로 사용
+                    input_box = driver.find_element(By.ID, "sid1") 
                     input_box.clear()
                     input_box.send_keys(tracking_number)
                     
@@ -167,13 +166,13 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
                     print_btn.click()
                     
                     # ----------------------------------------------------
-                    # [V26 로직] time.sleep(7) 대신 파일 생성 감지 로직 도입
+                    # [V28 수정] 파일 생성 감지 대기 시간을 10초 -> 30초로 증가
                     # ----------------------------------------------------
                     after_files = set(glob.glob(os.path.join(temp_save_dir, "*.pdf")))
                     start_time = time.time()
                     
-                    # 최대 10초까지 파일이 새로 생성되기를 명시적으로 기다립니다.
-                    while time.time() - start_time < 10: 
+                    # 최대 30초까지 파일이 새로 생성되기를 명시적으로 기다립니다.
+                    while time.time() - start_time < 30: 
                         current_files = set(glob.glob(os.path.join(temp_save_dir, "*.pdf")))
                         new_files = list(current_files - after_files)
                         if new_files:
@@ -200,7 +199,6 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
                     continue
 
             # 작업 완료 후 ZIP 파일 생성
-            # ... (ZIP 파일 생성 로직은 V23과 동일)
             zip_buffer = BytesIO()
             zip_file_name = f"epost_tracking_results_{time.strftime('%Y%m%d_%H%M%S')}.zip"
             with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
@@ -265,7 +263,7 @@ def main():
     # '시작' 버튼 클릭 이벤트 처리
     if start_button and uploaded_file:
         # Streamlit Spinner를 사용하여 작업 중임을 사용자에게 알림
-        with st.spinner('Selenium 작업 진행 중... (클라우드 환경에서는 5분 이상 소요될 수 있습니다)'):
+        with st.spinner('Selenium 작업 진행 중... (클라우드 환경에서는 시간이 다소 소요될 수 있습니다)'):
             run_selenium_process(uploaded_file.read(), log_placeholder) 
         
         # 작업이 끝나면 (Spinner 종료) 다운로드 섹션을 보여주기 위해 RERUN
