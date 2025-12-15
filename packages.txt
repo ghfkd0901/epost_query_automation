@@ -1,3 +1,2 @@
-# packages.txt 파일 내용 (딱 2줄만 남김)
 chromium
 ffmpeg
