@@ -45,18 +45,15 @@ def clear_log():
 def get_chrome_driver_path():
     """크롬 드라이버 경로를 한 번만 설치/가져옵니다."""
     try:
-        # Streamlit Cloud 환경에서는 webdriver-manager가 제대로 작동하지 않을 수 있으므로, 
-        # 로컬 환경에서만 사용하고 클라우드에서는 Secrets의 BIN 경로를 사용합니다.
-        # 이 함수는 로컬 환경 테스트 시에만 유효합니다.
+        # 로컬 환경 테스트 시 사용
         path = ChromeDriverManager().install()
         return path
     except Exception as e:
-        # 클라우드 환경에서는 설치 실패 시 'chromedriver' 기본값을 반환하여 
-        # Secrets에 설정된 경로로 연결되도록 유도합니다.
+        # 클라우드 환경에서는 Secrets에 설정된 경로로 연결되도록 유도합니다.
         return 'chromedriver' 
 
 # =========================
-# 2. Selenium 작업 함수 (클라우드 안정화 옵션 추가)
+# 2. Selenium 작업 함수 (클라우드 최종 안정화 옵션 추가)
 # =========================
 def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
     """
@@ -92,18 +89,27 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
                 "savefile.default_directory": temp_save_dir
             })
             options.add_argument("--kiosk-printing")
+            options.add_argument("--headless") # 클라우드 배포 시 필수
             
-            # --- [V22 핵심 수정] 클라우드 충돌 방지 필수 인자 추가 ---
-            # 1. 클라우드 환경에서 필수적인 옵션들
+            # --- [V23 핵심 수정] 클라우드 충돌 방지 및 DevToolsActivePort 에러 회피 최종 옵션 ---
+            
+            # 1. 일반적인 안정화 및 자원 제한 옵션
             options.add_argument("--no-sandbox") 
             options.add_argument("--disable-dev-shm-usage") 
             options.add_argument("--disable-gpu")
             options.add_argument("--window-size=1920,1080")
             options.add_argument("--remote-debugging-pipe") 
             
-            # 2. 헤드리스 옵션 추가 (클라우드에서는 필수, 로컬에서는 주석 처리 권장)
-            # 클라우드 배포 시 UI가 보이지 않으므로, 충돌 방지를 위해 헤드리스를 명시적으로 켜줍니다.
-            options.add_argument("--headless") 
+            # 2. 캐시 및 사용자 데이터를 /tmp로 강제 지정 (권한/충돌 회피)
+            # 이 옵션들이 DevToolsActivePort 에러를 해결하는 핵심 수단입니다.
+            options.add_argument("--user-data-dir=/tmp/user-data")
+            options.add_argument("--data-path=/tmp/data-path")
+            options.add_argument("--disk-cache-dir=/tmp/cache-dir")
+            
+            # 3. 불필요한 Chrome 내부 리소스 비활성화 (Crash 방지)
+            options.add_argument("--disable-extensions")
+            options.add_argument("--disable-application-cache")
+            options.add_argument("--disable-logging")
 
             # 드라이버 실행
             driver_path = get_chrome_driver_path()
@@ -162,16 +168,8 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
                         log_and_update(f"→ PDF 생성 안됨 (Timecheck)")
 
                 except Exception as e:
-                    # 에러 발생 시 스크린샷 저장
-                    err_shot = os.path.join(temp_save_dir, f"error_{tracking_number}.png")
-                    # 클라우드에서는 스크린샷 저장이 자원 문제로 실패할 수 있으나 시도
-                    try:
-                        driver.save_screenshot(err_shot)
-                        log_and_update(f"→ 오류 발생! 스크린샷 저장됨: {err_shot}")
-                    except:
-                        log_and_update(f"→ 오류 발생! 스크린샷 저장 실패.")
-                        
-                    log_and_update(f"→ 에러 내용: {e}")
+                    # 에러 발생 시 스크린샷 저장 (클라우드 환경에서는 실패 가능성 있음)
+                    log_and_update(f"→ 오류 발생! 상세 에러: {e}")
                     continue
 
             # 작업 완료 후 ZIP 파일 생성
