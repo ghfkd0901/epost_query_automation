@@ -15,7 +15,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+# from selenium.webdriver.chrome.service import Service # V24: Service 모듈 import 제거
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
@@ -24,6 +24,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 # =========================
 # 1. 상태 관리 및 유틸리티
 # =========================
+# ... (상태 관리 함수는 V23과 동일)
+
 if 'log_messages' not in st.session_state:
     st.session_state.log_messages = []
 if 'zip_download_data' not in st.session_state:
@@ -43,17 +45,15 @@ def clear_log():
 
 @st.cache_resource(ttl=3600)
 def get_chrome_driver_path():
-    """크롬 드라이버 경로를 한 번만 설치/가져옵니다."""
+    """크롬 드라이버 경로를 한 번만 설치/가져옵니다. (V24에서는 사용되지 않음)"""
     try:
-        # 로컬 환경 테스트 시 사용
         path = ChromeDriverManager().install()
         return path
     except Exception as e:
-        # 클라우드 환경에서는 Secrets에 설정된 경로로 연결되도록 유도합니다.
         return 'chromedriver' 
 
 # =========================
-# 2. Selenium 작업 함수 (클라우드 최종 안정화 옵션 추가)
+# 2. Selenium 작업 함수 (Service 객체 제거)
 # =========================
 def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
     """
@@ -91,40 +91,38 @@ def run_selenium_process(uploaded_file_bytes: bytes, log_placeholder):
             options.add_argument("--kiosk-printing")
             options.add_argument("--headless") # 클라우드 배포 시 필수
             
-            # --- [V23 핵심 수정] 클라우드 충돌 방지 및 DevToolsActivePort 에러 회피 최종 옵션 ---
-            
-            # 1. 일반적인 안정화 및 자원 제한 옵션
+            # --- 클라우드 충돌 방지 및 DevToolsActivePort 에러 회피 최종 옵션 ---
             options.add_argument("--no-sandbox") 
             options.add_argument("--disable-dev-shm-usage") 
             options.add_argument("--disable-gpu")
             options.add_argument("--window-size=1920,1080")
             options.add_argument("--remote-debugging-pipe") 
-            
-            # 2. 캐시 및 사용자 데이터를 /tmp로 강제 지정 (권한/충돌 회피)
-            # 이 옵션들이 DevToolsActivePort 에러를 해결하는 핵심 수단입니다.
             options.add_argument("--user-data-dir=/tmp/user-data")
             options.add_argument("--data-path=/tmp/data-path")
             options.add_argument("--disk-cache-dir=/tmp/cache-dir")
-            
-            # 3. 불필요한 Chrome 내부 리소스 비활성화 (Crash 방지)
             options.add_argument("--disable-extensions")
             options.add_argument("--disable-application-cache")
             options.add_argument("--disable-logging")
 
             # 드라이버 실행
-            driver_path = get_chrome_driver_path()
             
-            # Streamlit Cloud 환경에서 Secrets 설정이 되어 있을 경우 BIN 경로를 사용합니다.
+            # [V24 핵심 수정 1] Service 객체 사용 없이 options에 binary_location 설정
             if 'chrome' in st.secrets and 'BIN' in st.secrets['chrome']:
                  options.binary_location = st.secrets['chrome']['BIN']
+                 log_and_update(f"Chromium BIN 경로 사용: {st.secrets['chrome']['BIN']}")
+            else:
+                 log_and_update("Chromium BIN 경로 설정 없음. 기본 경로를 사용합니다.")
                  
-            service = Service(driver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            # [V24 핵심 수정 2] Chrome() 호출 시 options만 전달
+            driver = webdriver.Chrome(options=options) 
+            log_and_update("Chrome 드라이버 세션 시작 시도 완료.")
+            
             driver.maximize_window()
             wait = WebDriverWait(driver, 20) 
             total = len(df)
             
             for i, row in df.iterrows():
+                # ... (Selenium 핵심 루프는 V23과 동일)
                 tracking_number = str(row["등기번호"]).strip()
                 if not tracking_number: continue
 
